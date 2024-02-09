@@ -1261,3 +1261,65 @@ func BenchmarkRebuildContentFileChange(b *testing.B) {
 		// fmt.Println(bb.LogString())
 	}
 }
+
+func TestRebuildConcat(t *testing.T) {
+	files := `
+-- hugo.toml --
+baseURL = "https://example.com"
+disableLiveReload = true
+-- assets/a.css --
+a
+-- assets/b.css --
+b
+-- assets/c.css --
+c
+-- layouts/index.html --
+{{ $a := resources.GetMatch "a.css" }}
+{{ $b := resources.Get "b.css" }}
+{{ $c := resources.GetMatch "c.css" }}
+{{ $bc := slice $b $c | resources.Concat "bc.css" }}
+{{ $abbc := slice $a $b $bc | resources.Concat "abbc.css" }}
+abbc: {{ $abbc.Content | safeCSS }}
+`
+	b := TestRunning(t, files)
+
+	b.AssertFileContent("public/index.html", "abbc: abbc")
+
+	b.EditFileReplaceAll("assets/a.css", "a", "a edited").Build()
+
+	b.AssertFileContent("public/index.html", "abbc: a editedbbc")
+
+	b.EditFileReplaceAll("assets/c.css", "c", "c edited").Build()
+
+	b.AssertFileContent("public/index.html", "abbc: a editedbbc edited")
+}
+
+func TestRebuildConcatMatch(t *testing.T) {
+	files := `
+-- hugo.toml --
+baseURL = "https://example.com"
+disableLiveReload = true
+disableKinds = ["taxonomy", "term", "sitemap", "robotsTXT", "404", "rss"]
+-- assets/a.css --
+a
+-- assets/b.css --
+b
+-- assets/c.css --
+c
+-- layouts/baseof.html --
+{{ block "main" . }}{{ end }}
+{{ $concat := resources.Match "*.css" | resources.Concat "all.css" }}
+{{ $a := resources.Get "a.css" }}
+{{ $all := slice $a $concat | resources.Concat "all.css" | fingerprint }}
+all: {{ $all.RelPermalink }}
+-- layouts/index.html --
+{{ define "main" }}Main{{ end }}
+
+`
+	b := TestRunning(t, files)
+
+	b.AssertFileContent("public/index.html", "all: /all.ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad.css")
+	b.EditFileReplaceAll("assets/c.css", "c", "c edited").Build()
+	b.AssertFileContent("public/index.html", "all: /all.6dc8c9da5de8f1a85a6167148657c09f26be309eaa9527d757731f91e57e59e5.css")
+	b.AssertFileContent("public/all.6dc8c9da5de8f1a85a6167148657c09f26be309eaa9527d757731f91e57e59e5.css", "abc edited")
+}

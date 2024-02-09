@@ -64,7 +64,7 @@ func (c *Client) Copy(r resource.Resource, targetPath string) (resource.Resource
 }
 
 func (c *Client) newDependencyManager() identity.Manager {
-	if c.rs.Cfg.Running() {
+	if c.rs.Cfg.Watching() {
 		return identity.NewManager("resources")
 	}
 	return identity.NopManager

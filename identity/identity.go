@@ -312,7 +312,7 @@ func (im *identityManager) AddIdentity(ids ...Identity) {
 	im.mu.Lock()
 
 	for _, id := range ids {
-		if id == Anonymous {
+		if id == nil || id == Anonymous {
 			continue
 		}
 		if _, found := im.ids[id]; !found {
@@ -418,6 +418,9 @@ func walkIdentities(v any, level int, deep bool, seen map[Identity]bool, cb func
 func walkIdentitiesShallow(v any, level int, cb func(level int, id Identity) bool) bool {
 	cb2 := func(level int, id Identity) bool {
 		if id == Anonymous {
+			return false
+		}
+		if id == nil {
 			return false
 		}
 		return cb(level, id)

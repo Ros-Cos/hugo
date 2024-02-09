@@ -156,12 +156,15 @@ func (c *Cache) ClearMatching(predicate func(k, v any) bool) {
 	g.Wait()
 }
 
-// ClearOnRebuild prepares the cache for a new rebuild taking the given changeset into account.
-func (c *Cache) ClearOnRebuild(changeset ...identity.Identity) {
+// ClearOnRebuild prepares the cache for a new rebuild taking the given predicate and changeset into account.
+func (c *Cache) ClearOnRebuild(predicate func(k, v any) bool, changeset ...identity.Identity) {
+	if predicate == nil {
+		predicate = func(k, v any) bool { return false }
+	}
 	g := rungroup.Run[PartitionManager](context.Background(), rungroup.Config[PartitionManager]{
 		NumWorkers: len(c.partitions),
 		Handle: func(ctx context.Context, partition PartitionManager) error {
-			partition.clearOnRebuild(changeset...)
+			partition.clearOnRebuild(predicate, changeset...)
 			return nil
 		},
 	})
@@ -420,7 +423,7 @@ func (p *Partition[K, V]) clearMatching(predicate func(k, v any) bool) {
 	})
 }
 
-func (p *Partition[K, V]) clearOnRebuild(changeset ...identity.Identity) {
+func (p *Partition[K, V]) clearOnRebuild(predicate func(k, v any) bool, changeset ...identity.Identity) {
 	opts := p.getOptions()
 	if opts.ClearWhen == ClearNever {
 		return
@@ -437,6 +440,10 @@ func (p *Partition[K, V]) clearOnRebuild(changeset ...identity.Identity) {
 	shouldDelete := func(key K, v V) bool {
 		// We always clear elements marked as stale.
 		if resource.IsStaleAny(v) {
+			return true
+		}
+
+		if predicate(key, v) {
 			return true
 		}
 
@@ -542,7 +549,7 @@ type PartitionManager interface {
 	adjustMaxSize(addend int) int
 	getMaxSize() int
 	getOptions() OptionsPartition
-	clearOnRebuild(changeset ...identity.Identity)
+	clearOnRebuild(predicate func(k, v any) bool, changeset ...identity.Identity)
 	clearMatching(predicate func(k, v any) bool)
 	clearStale()
 }

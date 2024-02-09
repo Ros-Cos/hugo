@@ -1018,31 +1018,27 @@ func (h *HugoSites) resolveAndClearStateForIdentities(
 	}
 
 	// The order matters here:
-	// 1. Handle the cache busters first, as those may produce identities for the page reset step.
+	// 1. Clear the cache first; this may produce identities that need to be resolved.
 	// 2. Then reset the page outputs, which may mark some resources as stale.
-	// 3. Then GC the cache.
-	if cachebuster != nil {
-		if err := loggers.TimeTrackfn(func() (logg.LevelLogger, error) {
-			ll := l.WithField("substep", "gc dynacache cachebuster")
+	// 3. Then clear the cache for stale resources.
+	if err := loggers.TimeTrackfn(func() (logg.LevelLogger, error) {
+		ll := l.WithField("substep", "gc dynacache step 1")
 
-			shouldDelete := func(k, v any) bool {
-				if cachebuster == nil {
-					return false
+		shouldDelete := func(k, v any) bool {
+			if cachebuster != nil {
+				if s, ok := k.(string); ok && cachebuster(s) {
+					return true
 				}
-				var b bool
-				if s, ok := k.(string); ok {
-					b = cachebuster(s)
-				}
-
-				return b
 			}
 
-			h.MemCache.ClearMatching(shouldDelete)
-
-			return ll, nil
-		}); err != nil {
-			return err
+			return false
 		}
+
+		h.MemCache.ClearOnRebuild(shouldDelete, changes...)
+
+		return ll, nil
+	}); err != nil {
+		return err
 	}
 
 	// Drain the the cache eviction stack.
@@ -1079,9 +1075,15 @@ func (h *HugoSites) resolveAndClearStateForIdentities(
 	}
 
 	if err := loggers.TimeTrackfn(func() (logg.LevelLogger, error) {
-		ll := l.WithField("substep", "gc dynacache")
+		ll := l.WithField("substep", "gc dynacache step 2")
 
-		h.MemCache.ClearOnRebuild(changes...)
+		// We need to do this twice to catch all the resources that are marked as stale in the first pass.
+		for i := 0; i < 2; i++ {
+			h.MemCache.ClearMatching(func(k, v any) bool {
+				return resource.IsStaleAny(v)
+			})
+		}
+
 		h.Log.Trace(logg.StringFunc(func() string {
 			var sb strings.Builder
 			sb.WriteString("dynacache keys:\n")

@@ -20,6 +20,7 @@ import (
 	"path"
 
 	"github.com/gohugoio/hugo/common/hugio"
+	"github.com/gohugoio/hugo/identity"
 	"github.com/gohugoio/hugo/media"
 	"github.com/gohugoio/hugo/resources"
 	"github.com/gohugoio/hugo/resources/resource"
@@ -82,6 +83,11 @@ func (r *multiReadSeekCloser) Close() error {
 func (c *Client) Concat(targetPath string, r resource.Resources) (resource.Resource, error) {
 	targetPath = path.Clean(targetPath)
 	return c.rs.ResourceCache.GetOrCreate(targetPath, func() (resource.Resource, error) {
+		var idm identity.Manager = identity.NopManager
+		if c.rs.Cfg.Watching() {
+			idm = identity.NewManager("concat")
+		}
+
 		var resolvedm media.Type
 
 		// The given set of resources must be of the same Media Type.
@@ -91,6 +97,10 @@ func (c *Client) Concat(targetPath string, r resource.Resources) (resource.Resou
 				return nil, fmt.Errorf("resources in Concat must be of the same Media Type, got %q and %q", r.MediaType().Type, resolvedm.Type)
 			}
 			resolvedm = r.MediaType()
+			identity.WalkIdentitiesShallow(r, func(depth int, id identity.Identity) bool {
+				idm.AddIdentity(id)
+				return false
+			})
 		}
 
 		concatr := func() (hugio.ReadSeekCloser, error) {
@@ -136,6 +146,7 @@ func (c *Client) Concat(targetPath string, r resource.Resources) (resource.Resou
 				LazyPublish:        true,
 				OpenReadSeekCloser: concatr,
 				TargetPath:         targetPath,
+				DependencyManager:  idm,
 			})
 		if err != nil {
 			return nil, err
